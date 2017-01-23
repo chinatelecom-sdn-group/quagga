@@ -30,6 +30,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "hash.h"
 #include "jhash.h"
 #include "filter.h"
+#include "math.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_attr.h"
@@ -1605,6 +1606,223 @@ bgp_attr_cluster_list (struct bgp_attr_parser_args *args)
   return BGP_ATTR_PARSE_PROCEED;
 }
 
+/*******************************FLOWSPEC*************************************************/
+#if 0
+static void print_array(int *array, int len)
+{
+    int i;
+    //printf("\n");
+    for(i=0;i<len;i++)
+        printf("%d",array[i]);
+    //printf("\n");
+}
+#endif
+/**/
+static void hex2bin(unsigned char *hex, int *bin)
+{
+	int remainder = *hex;
+	int i = 0;
+	while(remainder>=1&&i<8)
+    {
+		bin[7-i] = remainder % 2;
+		remainder = remainder / 2;
+		i++;
+	}
+	for(;i<8;i++)
+		bin[7-i] = 0;
+	//print_array(bin,8);
+}
+
+
+//type 1 dst and 2 src prefix decode
+static void prefix_decode(unsigned char *nlri_ptr, u_int32_t *offset, int *ip_addr)
+{
+    int prefix_octet;
+    int idx = 0;
+    //int i;
+	//printf("offset:%d\n",*offset);
+	//printf("nlri_ptr[*offset]:%d\n",nlri_ptr[*offset]);
+    ip_addr[4] = nlri_ptr[*offset]; //read the prefix length
+    (*offset)++;
+    prefix_octet = ceil(ip_addr[4]/8.0);// octet as a processing unit
+    printf("prefix_octet:%d\n",prefix_octet);
+    while(prefix_octet)
+    {
+        ip_addr[idx] = nlri_ptr[*offset];
+		//printf("ip_addr[idx]=%d\n",ip_addr[idx]);
+        idx ++;
+        (*offset) ++;
+        prefix_octet --;
+    }
+	int j;
+	j = ceil(ip_addr[4]/8.0);
+	for(;j<4;j++)
+		ip_addr[j] = 0;
+	printf("%d.%d.%d.%d/%d\n",ip_addr[0],ip_addr[1],ip_addr[2],ip_addr[3],ip_addr[4]);
+}
+
+static int hexstr2num(unsigned char *hexstr, int len)
+{
+    int i = 0;
+    int num = 0;
+    for(i=0;i<len;i++)
+    {
+        //if(hexstr[i]<='9'&&hexstr[i]>='0')
+        //printf("hexstr[i]=%d\n",hexstr[i]);
+            num = hexstr[i] + 16*16*num;
+        /*else if (hexstr[i]<='f'&&hexstr[i]>='a')
+            num = hexstr[i] - 'a' + 10 + 16*num;
+        else
+            return -1;
+            */
+    }
+    return num;
+}
+
+//decode the numberic operator
+//void op_decode(char **nlri_ptr)
+static void op_decode(unsigned char *nlri_ptr, u_int32_t *offset)
+{
+	//printf("********************************************\n");
+	int op[8];
+    int len, value, value_size;
+    do{
+        //printf("operator = 0x%x, ", nlri_ptr[*offset]);
+        hex2bin(&nlri_ptr[*offset], op);
+        //print_array(op, 8);
+        (*offset)++;
+        if(op[0] == 1)
+            printf("end of list, ");
+        if(op[1] == 1)
+            printf("and bit, ");
+        len = 2*op[2]+op[3];
+        value_size = 1 << len; // word
+        printf("value_size = %d, ", value_size);
+        if(op[5] == 1)
+            printf("<");
+        if(op[6] == 1)
+            printf(">");
+        if(op[7] == 1)
+            printf("=");
+        value = hexstr2num(&nlri_ptr[*offset], value_size);
+        printf("%d\n",value);
+        (*offset) += value_size;
+		//printf("offset=%d\n",*offset);
+    }while(op[0] == 0);
+}
+
+//decode the operand operator
+static void tcpflags_decode(unsigned char *nlri_ptr, u_int32_t *offset)
+{
+    int op[8];
+    int len, value, value_size;
+    do{
+        hex2bin(&nlri_ptr[*offset], op);
+        (*offset)++;
+        if(op[0] == 1)
+            printf("end of list, ");
+        if(op[1] == 1)
+            printf("and bit, ");
+        len = 2*op[2]+op[3];
+        value_size = 1 << len; // word
+        printf("value_size = %d, ", value_size);
+        if(op[6] == 1)
+            printf("not, ");
+        if(op[7] == 1)
+            printf("match, ");
+        value = hexstr2num(&nlri_ptr[*offset], value_size);
+        printf("%d\n",value);
+        (*offset) += value_size;
+    }while(op[0] == 0);
+}
+
+static void fragment_type_decode(unsigned char *nlri_ptr, u_int32_t *offset)
+{
+    int op[8];
+    int len, value, value_size;
+    do{
+        hex2bin(&nlri_ptr[*offset], op);
+        (*offset)++;
+        if(op[0] == 1)
+            printf("end of list, ");
+        if(op[1] == 1)
+            printf("and bit, ");
+        len = 2*op[2]+op[3];
+        value_size = 1 << len; // word
+        printf("value_size = %d, ", value_size);
+        if(op[6] == 1)
+            printf("not, ");
+        if(op[7] == 1)
+            printf("match, ");
+        value = hexstr2num(&nlri_ptr[*offset], value_size);
+		printf("value=%d, ",value);
+		switch(value)
+		{
+			case 1:
+				printf("dont-fragment\n");
+				break;
+			case 2:
+				printf("is-fragment\n");
+				break;
+			case 4:
+				printf("first-fragment\n");
+				break;
+			case 8:
+				printf("last-fragment\n");
+				break;
+			default:
+					{}
+		}
+        (*offset) += value_size;
+    }while(op[0] == 0);
+}
+
+/* Parse FLOWSPEC NLRI*/
+static void 
+bgp_fs_nlri_parse (unsigned char *nlri_content, size_t len)
+{
+	u_int32_t offset = 0;//offset
+	int type;
+	int ip_addr[5];
+	
+	while(offset < len-1)
+		{
+		type = nlri_content[offset];
+		printf("type:%d ", type);
+		offset++;
+		switch(type){
+			case 1:
+			case 2:
+				prefix_decode(nlri_content, &offset, ip_addr);
+				break;
+			case 3:
+			case 4:
+			case 5:
+			case 6:
+			case 7:
+			case 8:
+				op_decode(nlri_content, &offset);
+				break;
+			case 9:
+				tcpflags_decode(nlri_content, &offset);
+				break;
+			case 10:
+			case 11:
+				op_decode(nlri_content, &offset);
+				break;
+			case 12:
+				fragment_type_decode(nlri_content, &offset);
+				break;
+			default:
+				printf("error: type is %d\n", type);
+
+		}
+		//break;
+	}
+	
+}
+/*******************************FLOWSPEC*************************************************/
+
 /* Multiprotocol reachability information parse. */
 int
 bgp_mp_reach_parse (struct bgp_attr_parser_args *args,
@@ -1614,29 +1832,39 @@ bgp_mp_reach_parse (struct bgp_attr_parser_args *args,
   safi_t safi;
   bgp_size_t nlri_len;
   size_t start;
+  size_t tmp;
+//  int i;
   struct stream *s;
+  size_t ss;
   struct peer *const peer = args->peer;  
   struct attr *const attr = args->attr;
-  const bgp_size_t length = args->length;
+  const bgp_size_t length = args->length;/* attribute data length; */
   struct attr_extra *attre = bgp_attr_extra_get(attr);
   
   /* Set end of packet. */
   s = BGP_INPUT(peer);
   start = stream_get_getp(s);
-  
+
   /* safe to read statically sized header? */
 #define BGP_MP_REACH_MIN_SIZE 5
 #define LEN_LEFT	(length - (stream_get_getp(s) - start))
+  /*
+  for(i=0;i<LEN_LEFT;i++){
+  printf("*s tmp%d=%u\n",i,s->data[stream_get_getp(s)+i]);
+  }
+*/
   if ((length > STREAM_READABLE(s)) || (length < BGP_MP_REACH_MIN_SIZE))
     {
       zlog_info ("%s: %s sent invalid length, %lu", 
 		 __func__, peer->host, (unsigned long)length);
       return BGP_ATTR_PARSE_ERROR_NOTIFYPLS;
     }
-  
+    
   /* Load AFI, SAFI. */
   afi = stream_getw (s);
+  //printf("*afi=%d tmp=%u\n",afi,(stream_get_getp(s) - start));  
   safi = stream_getc (s);
+  //printf("*safi=%d tmp=%u\n",safi,(stream_get_getp(s) - start));
 
   /* Get nexthop length. */
   attre->mp_nexthop_len = stream_getc (s);
@@ -1648,6 +1876,23 @@ bgp_mp_reach_parse (struct bgp_attr_parser_args *args,
       return BGP_ATTR_PARSE_ERROR_NOTIFYPLS;
     }
   
+  if (afi == AFI_IP && safi == SAFI_FLOWSPEC){
+		ss = s->getp + attre->mp_nexthop_len + 1;
+		//tmp = length - (stream_get_getp(s) - start);
+		//printf("*s tmp=%u\n",tmp);
+
+		tmp = length - (ss - start);
+		//printf("*ssu tmp=%u\n",tmp);
+		if(tmp >= 240){
+			ss+=2;
+		}
+		else{
+			ss++;
+		}
+		printf("parse flowspec nlri\n");
+		bgp_fs_nlri_parse(&s->data[ss], tmp);
+  	}
+  else{  
   /* Nexthop length check. */
   switch (attre->mp_nexthop_len)
     {
@@ -1713,14 +1958,14 @@ bgp_mp_reach_parse (struct bgp_attr_parser_args *args,
 		 __func__, peer->host, attre->mp_nexthop_len);
       return BGP_ATTR_PARSE_ERROR_NOTIFYPLS;
     }
-
+  	}
   if (!LEN_LEFT)
     {
       zlog_info ("%s: (%s) Failed to read SNPA and NLRI(s)",
                  __func__, peer->host);
       return BGP_ATTR_PARSE_ERROR_NOTIFYPLS;
     }
-  
+ // 	}
   {
     u_char val; 
     if ((val = stream_getc (s)))
@@ -1786,6 +2031,12 @@ bgp_mp_unreach_parse (struct bgp_attr_parser_args *args,
   return BGP_ATTR_PARSE_PROCEED;
 }
 
+union traffic_rate
+{
+	float rate_float;
+	u_int8_t rate_byte[4];
+};
+
 /* Extended Community attribute. */
 static bgp_attr_parse_ret_t
 bgp_attr_ext_communities (struct bgp_attr_parser_args *args)
@@ -1793,6 +2044,8 @@ bgp_attr_ext_communities (struct bgp_attr_parser_args *args)
   struct peer *const peer = args->peer;  
   struct attr *const attr = args->attr;  
   const bgp_size_t length = args->length;
+  u_int8_t tmp = 0;
+  union traffic_rate data;
   
   if (length == 0)
     {
@@ -1814,6 +2067,36 @@ bgp_attr_ext_communities (struct bgp_attr_parser_args *args)
   
   attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_EXT_COMMUNITIES);
 
+  /*Flowspec actions*/
+  while(attr->extra->ecommunity->val[tmp * 8]==0x80)
+  {
+		switch(attr->extra->ecommunity->val[tmp * 8 + 1])
+		{
+			case 0x06:
+				data.rate_byte[3] = attr->extra->ecommunity->val[tmp * 8 + 4];
+				data.rate_byte[2] = attr->extra->ecommunity->val[tmp * 8 + 5];
+				data.rate_byte[1] = attr->extra->ecommunity->val[tmp * 8 + 6];
+				data.rate_byte[0] = attr->extra->ecommunity->val[tmp * 8 + 7];
+				tmp++;
+				printf("FS action: traffic-rate = %f\n", data.rate_float);// 2-byte AS, 4-byte rate
+				break;
+			case 0x07:
+				tmp++;
+				printf("FS action: traffic-action\n");
+				break;
+			case 0x08:
+				tmp++;
+				printf("FS action: redirect\n");
+				break;
+			case 0x09:
+				tmp++;
+				printf("FS action: traffic-marking\n");
+				break;
+			default:
+					{}
+		}
+			
+  }
   return BGP_ATTR_PARSE_PROCEED;
 }
 
@@ -2412,7 +2695,9 @@ bgp_packet_mpattr_start (struct stream *s, afi_t afi, safi_t safi,
 	  stream_putc (s, 4);
 	  stream_put (s, &attr->extra->mp_nexthop_global_in, 4);
 	  break;
-	case SAFI_UNICAST:      /* invalid for IPv4 */
+	case SAFI_FLOWSPEC:  // flowspec question?
+	  stream_putc (s, 0); // Reserved 1 octet
+	case SAFI_UNICAST:      /* invalid for IPv4 */	
 	default:
 	  break;
 	}
@@ -2422,6 +2707,7 @@ bgp_packet_mpattr_start (struct stream *s, afi_t afi, safi_t safi,
       {
       case SAFI_UNICAST:
       case SAFI_MULTICAST:
+	  //case SAFI_FLOWSPEC:	 // flowspec question?	
 	{
 	  struct attr_extra *attre = attr->extra;
 
@@ -2484,6 +2770,18 @@ bgp_packet_mpattr_prefix (struct stream *s, afi_t afi, safi_t safi,
       stream_put (s, prd->val, 8);
       stream_put (s, &p->u.prefix, PSIZE (p->prefixlen));
     }
+  else if (safi == SAFI_FLOWSPEC)
+  	{
+		printf("###SAFI_FLOWSPEC###bgp_packet_mpattr_prefix\n");
+		if(PSIZE (p->prefixlen)+2 < 240)
+			stream_putc(s, PSIZE (p->prefixlen)+2);
+		else{
+			stream_putw(s, (PSIZE (p->prefixlen)+2)|(0xf<<12));
+			}
+		stream_putc(s, 2);/* Filter type */
+		stream_putc(s, p->prefixlen);/* Prefix length */
+		stream_put (s, &p->u.prefix, PSIZE (p->prefixlen));
+  	}
   else
     stream_put_prefix (s, p);
 }
@@ -2613,10 +2911,20 @@ bgp_packet_attribute (struct bgp *bgp, struct peer *peer,
 
   if (p && !(afi == AFI_IP && safi == SAFI_UNICAST))
     {
-      size_t mpattrlen_pos = 0;
+	  printf("#####bgp_packet_attribute(%d,%d)",afi,safi);
+	  size_t mpattrlen_pos = 0;
       mpattrlen_pos = bgp_packet_mpattr_start(s, afi, safi, attr);
       bgp_packet_mpattr_prefix(s, afi, safi, p, prd, tag);
       bgp_packet_mpattr_end(s, mpattrlen_pos);
+    }
+
+  if (attr->extra && attr->extra->transit && afi == AFI_IP && safi == SAFI_FLOWSPEC)
+    {
+	  size_t mpattrlen_pos = 0;
+      mpattrlen_pos = bgp_packet_mpattr_start(s, afi, safi, attr);
+	  stream_putc(s, attr->extra->transit->length);
+	  stream_put (s, attr->extra->transit->val, attr->extra->transit->length);
+	  bgp_packet_mpattr_end(s, mpattrlen_pos);
     }
 
   /* Origin attribute. */
@@ -2829,6 +3137,14 @@ bgp_packet_attribute (struct bgp *bgp, struct peer *peer,
     }
 
   /* Extended Communities attribute. */
+  //printf("Extended Communities attribute: peer->af_flags[%d][%d]=%d\n",afi, safi, peer->af_flags[afi][safi]);
+  //printf("ext-comm:CHECK_FLAG=%d\n",CHECK_FLAG (peer->af_flags[afi][safi], PEER_FLAG_SEND_EXT_COMMUNITY));
+  //printf(" (attr->flag & ATTR_FLAG_BIT (BGP_ATTR_EXT_COMMUNITIES))=%d\n", (attr->flag & ATTR_FLAG_BIT (BGP_ATTR_EXT_COMMUNITIES)));
+  //printf("attr->flag=%d\n",attr->flag);
+  //printf("ATTR_FLAG_BIT (BGP_ATTR_EXT_COMMUNITIES)=%d\n",ATTR_FLAG_BIT (BGP_ATTR_EXT_COMMUNITIES));
+  printf("ext-communities check: %d\n",CHECK_FLAG (peer->af_flags[afi][safi], PEER_FLAG_SEND_EXT_COMMUNITY) 
+      && (attr->flag & ATTR_FLAG_BIT (BGP_ATTR_EXT_COMMUNITIES)));
+  
   if (CHECK_FLAG (peer->af_flags[afi][safi], PEER_FLAG_SEND_EXT_COMMUNITY) 
       && (attr->flag & ATTR_FLAG_BIT (BGP_ATTR_EXT_COMMUNITIES)))
     {
@@ -2947,11 +3263,11 @@ bgp_packet_attribute (struct bgp *bgp, struct peer *peer,
 	/* Tunnel Encap attribute */
 	bgp_packet_mpattr_tea(bgp, peer, s, attr, BGP_ATTR_ENCAP);
     }
-
+#if 0
   /* Unknown transit attribute. */
   if (attr->extra && attr->extra->transit)
     stream_put (s, attr->extra->transit->val, attr->extra->transit->length);
-
+#endif
   /* Return total size of attribute. */
   return stream_get_endp (s) - cp;
 }

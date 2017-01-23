@@ -2958,6 +2958,7 @@ DEFUN (config_exit,
     case RMAP_NODE:
     case PIM_NODE:
     case VTY_NODE:
+	case FLOWSPEC_NODE:
       vty->node = CONFIG_NODE;
       break;
     case BGP_IPV4_NODE:
@@ -2968,6 +2969,7 @@ DEFUN (config_exit,
     case BGP_ENCAPV6_NODE:
     case BGP_IPV6_NODE:
     case BGP_IPV6M_NODE:
+	case BGP_FLOWSPEC_NODE:
       vty->node = BGP_NODE;
       break;
     case KEYCHAIN_KEY_NODE:

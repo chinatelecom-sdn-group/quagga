@@ -21,6 +21,20 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _QUAGGA_BGPD_H
 #define _QUAGGA_BGPD_H
 
+//NLRI type as define in BGP flow spec RFC
+#define BGPNLRI_FSPEC_DST_PFIX	1  // RFC 5575
+#define BGPNLRI_FSPEC_SRC_PFIX	2
+#define BGPNLRI_FSPEC_IP_PROTO	3
+#define BGPNLRI_FSPEC_PORT		4
+#define BGPNLRI_FSPEC_DST_PORT	5
+#define BGPNLRI_FSPEC_SRC_PORT	6
+#define BGPNLRI_FSPEC_ICMP_TP	7
+#define BGPNLRI_FSPEC_ICMP_CD	8
+#define BGPNLRI_FSPEC_TCP_FLAGS	9
+#define BGPNLRI_FSPEC_PCK_LEN	10
+#define BGPNLRI_FSPEC_DSCP		11
+#define BGPNLRI_FSPEC_FRAGMENT	12
+
 /* For union sockunion.  */
 #include "sockunion.h"
 

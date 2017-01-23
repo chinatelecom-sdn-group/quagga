@@ -221,7 +221,8 @@ bgp_update_packet (struct peer *peer, afi_t afi, safi_t safi)
 
       if (afi == AFI_IP && safi == SAFI_UNICAST)
 	stream_put_prefix (s, &rn->p);
-      else
+      //else
+      else if (afi != AFI_IP && safi != SAFI_FLOWSPEC)
 	{
 	  /* Encode the prefix in MP_REACH_NLRI attribute */
 	  struct prefix_rd *prd = NULL;
@@ -600,7 +601,7 @@ bgp_write_packet (struct peer *peer)
 	      return s;
 	  }
       }
-    
+
   for (afi = AFI_IP; afi < AFI_MAX; afi++)
     for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
       {
@@ -1598,13 +1599,15 @@ bgp_nlri_parse (struct peer *peer, struct attr *attr, struct bgp_nlri *packet)
   switch (packet->safi)
     {
       case SAFI_UNICAST:
-      case SAFI_MULTICAST:
+      case SAFI_MULTICAST:	
         return bgp_nlri_parse_ip (peer, attr, packet);
       case SAFI_MPLS_VPN:
       case SAFI_MPLS_LABELED_VPN:
         return bgp_nlri_parse_vpn (peer, attr, packet);
       case SAFI_ENCAP:
         return bgp_nlri_parse_encap (peer, attr, packet);
+	  case SAFI_FLOWSPEC:
+	  	return 0;
     }
   return -1;
 }

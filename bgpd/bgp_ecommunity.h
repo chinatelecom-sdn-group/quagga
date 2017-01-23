@@ -20,16 +20,23 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 #ifndef _QUAGGA_BGP_ECOMMUNITY_H
 #define _QUAGGA_BGP_ECOMMUNITY_H
+//#include "bgpd/bgp_flowspec.h"
 
 /* High-order octet of the Extended Communities type field.  */
 #define ECOMMUNITY_ENCODE_AS                0x00
 #define ECOMMUNITY_ENCODE_IP                0x01
 #define ECOMMUNITY_ENCODE_AS4               0x02
 #define ECOMMUNITY_ENCODE_OPAQUE            0x03
+#define ECOMMUNITY_ENCODE_TRANS_EXP         0x80 /* Transtivive Experimental */
 
 /* Low-order octet of the Extended Communities type field.  */
 #define ECOMMUNITY_ROUTE_TARGET             0x02
 #define ECOMMUNITY_SITE_ORIGIN              0x03
+#define ECOMMUNITY_TRAFFIC_RATE             0x06 /* Flow Spec */
+#define ECOMMUNITY_TRAFFIC_ACTION           0x07
+#define ECOMMUNITY_REDIRECT_VRF             0x08
+#define ECOMMUNITY_TRAFFIC_MARKING          0x09
+#define ECOMMUNITY_REDIRECT_IP_NH           0x00
 
 /* Low-order octet of the Extended Communities type field for OPAQUE types */
 #define ECOMMUNITY_OPAQUE_SUBTYPE_ENCAP     0x0c
@@ -67,6 +74,15 @@ struct ecommunity_val
   char val[ECOMMUNITY_SIZE];
 };
 
+/* Extended Communities token enum. 
+enum ecommunity_token
+{
+  ecommunity_token_unknown = 0,
+  ecommunity_token_rt,
+  ecommunity_token_soo,
+  ecommunity_token_val,
+};*/
+
 #define ecom_length(X)    ((X)->size * ECOMMUNITY_SIZE)
 
 extern void ecommunity_init (void);
@@ -84,5 +100,10 @@ extern struct ecommunity *ecommunity_str2com (const char *, int, int);
 extern char *ecommunity_ecom2str (struct ecommunity *, int);
 extern int ecommunity_match (const struct ecommunity *, const struct ecommunity *);
 extern char *ecommunity_str (struct ecommunity *);
+
+//extern struct ecommunity *ecommunity_test (struct flowspec_index *, as_t);
+//extern const char *ecommunity_gettoken (const char *, struct ecommunity_val *,
+//		     enum ecommunity_token *);
+
 
 #endif /* _QUAGGA_BGP_ECOMMUNITY_H */

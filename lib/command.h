@@ -108,6 +108,10 @@ enum node_type
   FORWARDING_NODE,		/* IP forwarding node. */
   PROTOCOL_NODE,                /* protocol filtering node */
   VTY_NODE,			/* Vty node. */
+  BGP_FLOWSPEC_NODE,		/* BGP FLOWSPEC SAFI */
+  BGP_FLOWSPECV6_NODE,		/* BGP FLOWSPEC SAFI */
+  BGP_FLOWSPEC_MATCH_NODE,
+  FLOWSPEC_NODE,
 };
 
 /* Node which has some commands and prompt string and configuration

@@ -20,6 +20,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 #include <zebra.h>
 
+#include "signal.h"
 #include "vector.h"
 #include "vty.h"
 #include "command.h"
@@ -334,6 +335,12 @@ bgp_exit (int status)
   exit (status);
 }
 
+static void
+sighandler(int sig_no)
+{
+	exit(0);
+}
+
 /* Main routine of bgpd. Treatment of argument and start bgp finite
    state machine is handled at here. */
 int
@@ -475,6 +482,8 @@ main (int argc, char **argv)
 	       (bm->address ? bm->address : "<all>"),
 	       bm->port,
 	       getpid ());
+  
+  signal(SIGUSR2, sighandler);
 
   /* Start finite state machine, here we go! */
   while (thread_fetch (bm->master, &thread))

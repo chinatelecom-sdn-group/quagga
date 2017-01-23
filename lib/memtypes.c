@@ -72,6 +72,12 @@ struct memory_list memory_list_lib[] =
   { MTYPE_VRF,			"VRF"				},
   { MTYPE_VRF_NAME,		"VRF name"			},
   { MTYPE_VRF_BITMAP,		"VRF bit-map"			},
+  { MTYPE_FLOWSPEC,		"BGP flowspec",			},
+  { MTYPE_FLOWSPEC_RULE,		"BGP flowspec rule",			},
+  { MTYPE_FLOWSPEC_RULE_STR,		"BGP flowspec rule str",			},  
+  { MTYPE_FLOWSPEC_COMPILED,		"BGP flowspec compiled",			},
+  { MTYPE_FLOWSPEC_NAME,		"BGP flowspec name",			},
+  { MTYPE_FLOWSPEC_INDEX,		"BGP flowspec index",			},  
   { -1, NULL },
 };
 

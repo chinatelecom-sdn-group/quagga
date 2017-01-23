@@ -55,6 +55,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_zebra.h"
 #include "bgpd/bgp_vty.h"
 #include "bgpd/bgp_mpath.h"
+#include "bgpd/bgp_flowspec.h"
 
 /* Extern from bgp_dump.c */
 extern const char *bgp_origin_str[];
@@ -2654,9 +2655,10 @@ bgp_announce_table (struct peer *peer, afi_t afi, safi_t safi,
     table = (rsclient) ? peer->rib[afi][safi] : peer->bgp->rib[afi][safi];
 
   if ((safi != SAFI_MPLS_VPN) && (safi != SAFI_ENCAP)
-      && CHECK_FLAG (peer->af_flags[afi][safi], PEER_FLAG_DEFAULT_ORIGINATE))
+      && CHECK_FLAG (peer->af_flags[afi][safi], PEER_FLAG_DEFAULT_ORIGINATE)){
     bgp_default_originate (peer, afi, safi, 0);
-
+	
+  	}
   /* It's initialized in bgp_announce_[check|check_rsclient]() */
   attr.extra = &extra;
 
@@ -2666,10 +2668,15 @@ bgp_announce_table (struct peer *peer, afi_t afi, safi_t safi,
 	{
          if ( (rsclient) ?
               (bgp_announce_check_rsclient (ri, peer, &rn->p, &attr, afi, safi))
-              : (bgp_announce_check (ri, peer, &rn->p, &attr, afi, safi)))
+              : (bgp_announce_check (ri, peer, &rn->p, &attr, afi, safi))){
 	    bgp_adj_out_set (rn, peer, &rn->p, &attr, afi, safi, ri);
+		printf("!!!!!!!!!bgp_adj_out_set(%d,%d)\n",afi,safi);
+		 }
 	  else
-	    bgp_adj_out_unset (rn, peer, &rn->p, afi, safi);
+	  	{
+	    	bgp_adj_out_unset (rn, peer, &rn->p, afi, safi);
+			printf("!!!!!!!!!bgp_adj_out_unset(%d,%d)\n",afi,safi);
+	  }
 	}
 
   bgp_attr_flush_encap(&attr);
@@ -3585,6 +3592,8 @@ bgp_static_update_main (struct bgp *bgp, struct prefix *p,
   attr.nexthop = bgp_static->igpnexthop;
   attr.med = bgp_static->igpmetric;
   attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_MULTI_EXIT_DISC);
+  //if (safi == SAFI_FLOWSPEC)
+  //	attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_EXT_COMMUNITIES);
 
   if (bgp_static->atomic)
     attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_ATOMIC_AGGREGATE);
@@ -3985,13 +3994,228 @@ bgp_static_set (struct vty *vty, struct bgp *bgp, const char *ip_str,
   /* If BGP scan is not enabled, we should install this route here.  */
   if (! bgp_flag_check (bgp, BGP_FLAG_IMPORT_CHECK))
     {
-      bgp_static->valid = 1;
+	  
+	  bgp_static->valid = 1;
 
       if (need_update)
 	bgp_static_withdraw (bgp, &p, afi, safi);
 
       if (! bgp_static->backdoor)
 	bgp_static_update (bgp, &p, bgp_static, afi, safi);
+    }
+
+  return CMD_SUCCESS;
+}
+
+int
+bgp_flowspec_set (struct vty *vty, struct bgp *bgp, const char *ip_str, 
+                afi_t afi, safi_t safi, const char *rmap, int backdoor, 
+                const char *fs_name)
+{
+  int ret;
+  struct prefix p;
+  struct bgp_static *bgp_static;
+  struct bgp_node *rn;
+  u_char need_update = 0;
+
+  /* Convert IP prefix string to struct prefix. */
+  ret = str2prefix (ip_str, &p);
+  if (! ret)
+    {
+      vty_out (vty, "%% Malformed prefix%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+  if (afi == AFI_IP6 && IN6_IS_ADDR_LINKLOCAL (&p.u.prefix6))
+    {
+      vty_out (vty, "%% Malformed prefix (link-local address)%s",
+	       VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+
+  apply_mask (&p);
+  
+  /* Set BGP static route configuration. */
+  rn = bgp_node_get (bgp->route[afi][safi], &p);
+
+  if (rn->info)
+    {
+      /* Configuration change. */
+      bgp_static = rn->info;
+
+      /* Check previous routes are installed into BGP.  */
+      if (bgp_static->valid && bgp_static->backdoor != backdoor)
+        need_update = 1;
+      
+      bgp_static->backdoor = backdoor;
+	{
+	  if (bgp_static->rmap.name)
+	    free (bgp_static->rmap.name);
+	  bgp_static->rmap.name = NULL;
+	  bgp_static->rmap.map = NULL;
+	  bgp_static->valid = 0;
+	}
+      bgp_unlock_node (rn);
+    }
+  else
+    {
+      /* New configuration. */
+      bgp_static = bgp_static_new ();
+      bgp_static->backdoor = backdoor;
+      bgp_static->valid = 0;
+      bgp_static->igpmetric = 0;
+      bgp_static->igpnexthop.s_addr = 0;
+      rn->info = bgp_static;
+    }
+	printf("bgp_flag_check (bgp, BGP_FLAG_IMPORT_CHECK)=%d\n",bgp_flag_check (bgp, BGP_FLAG_IMPORT_CHECK));
+  /* If BGP scan is not enabled, we should install this route here.  */
+  if (! bgp_flag_check (bgp, BGP_FLAG_IMPORT_CHECK))
+    {
+	  
+	  bgp_static->valid = 1;
+	printf("$$$$$$$$need_update=%d\n",need_update);
+	printf("$$$$$$$$bgp_static->backdoor=%d\n",bgp_static->backdoor);
+      if (need_update)
+	bgp_static_withdraw (bgp, &p, afi, safi);
+
+      if (! bgp_static->backdoor)
+	//bgp_static_update (bgp, &p, bgp_static, afi, safi);
+      	{
+		//struct bgp_node *rn;
+  struct bgp_info *ri;
+  struct bgp_info *new;
+  struct attr attr;
+  struct attr *attr_new;
+  //struct ecommunity *new_ecom;
+  //int ret;
+
+  //assert (bgp_static);
+  //if (!bgp_static)
+  //  return;
+  rn = bgp_afi_node_get (bgp->rib[afi][safi], afi, safi, &p, NULL);
+  bgp_attr_default_set (&attr, BGP_ORIGIN_IGP);
+  
+  attr.nexthop = bgp_static->igpnexthop;
+  attr.med = bgp_static->igpmetric;
+  attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_MULTI_EXIT_DISC);
+  attr.extra = bgp_attr_extra_get(&attr);
+  /****transit begin*****/
+  int i, total;
+  u_int8_t nlri_str[MAX_FLOWSEC_NLRI_LEN];
+  struct flowspec_index *fs_index;
+  struct flowspec *map;
+
+  map = flowspec_lookup_by_name(fs_name);
+  if(map == NULL)
+  	{
+	  	vty_out(vty, "%% Can't find the flowspec map.%s", VTY_NEWLINE);
+	  	return CMD_WARNING;
+  	}
+  
+  fs_index = flowspec_index_lookup(map, FLOWSPEC_ANY, 1);
+  if(fs_index == NULL)
+  	{
+	  	vty_out(vty, "%% Can't find the flowspec index.%s", VTY_NEWLINE);
+	  	return CMD_WARNING;
+  	}
+  
+  total = encode_flowspec_match(fs_index, nlri_str);
+  
+  struct transit *transit;
+  if (! attr.extra->transit)
+  	attr.extra->transit = XCALLOC (MTYPE_TRANSIT, sizeof (struct transit));
+
+  transit = attr.extra->transit;
+
+  if (transit->val)
+    transit->val = XREALLOC (MTYPE_TRANSIT_VAL, transit->val, 
+			     transit->length + total);
+  else
+    transit->val = XMALLOC (MTYPE_TRANSIT_VAL, total);
+
+  transit->length = total;  
+  for(i = 0;i < total; i++)
+  {
+  	transit->val[i] = nlri_str[i];
+  }
+  /****transit end*****/
+
+  // flowspec action to ecom
+	attr.extra->ecommunity = ecommunity_flowspec(fs_index, bgp->as);
+
+  if (safi == SAFI_FLOWSPEC)
+  	attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_EXT_COMMUNITIES);
+
+  if (bgp_static->atomic)
+    attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_ATOMIC_AGGREGATE);
+
+    attr_new = bgp_attr_intern (&attr);
+
+  for (ri = rn->info; ri; ri = ri->next)
+    if (ri->peer == bgp->peer_self && ri->type == ZEBRA_ROUTE_BGP
+	&& ri->sub_type == BGP_ROUTE_STATIC)
+      break;
+
+  if (ri)
+    {
+      if (attrhash_cmp (ri->attr, attr_new) &&
+	  !CHECK_FLAG(ri->flags, BGP_INFO_REMOVED))
+	{
+	  bgp_unlock_node (rn);
+	  bgp_attr_unintern (&attr_new);
+	  aspath_unintern (&attr.aspath);
+	  bgp_attr_extra_free (&attr);
+	  //return;
+	}
+      else
+	{
+	  /* The attribute is changed. */
+	  bgp_info_set_flag (rn, ri, BGP_INFO_ATTR_CHANGED);
+
+	  /* Rewrite BGP route information. */
+	  if (CHECK_FLAG(ri->flags, BGP_INFO_REMOVED))
+	    bgp_info_restore(rn, ri);
+	  else
+	    bgp_aggregate_decrement (bgp, &p, ri, afi, safi);
+	  bgp_attr_unintern (&ri->attr);
+	  ri->attr = attr_new;
+	  ri->uptime = bgp_clock ();
+
+	  /* Process change. */
+	  bgp_aggregate_increment (bgp, &p, ri, afi, safi);
+	  bgp_process (bgp, rn, afi, safi);
+	  bgp_unlock_node (rn);
+	  aspath_unintern (&attr.aspath);
+	  bgp_attr_extra_free (&attr);
+	  //return;
+	}
+    }
+
+  /* Make new BGP info. */
+  new = bgp_info_new ();
+  new->type = ZEBRA_ROUTE_BGP;
+  new->sub_type = BGP_ROUTE_STATIC;
+  new->peer = bgp->peer_self;
+  SET_FLAG (new->flags, BGP_INFO_VALID);
+  new->attr = attr_new;
+  new->uptime = bgp_clock ();
+
+  /* Aggregate address increment. */
+  bgp_aggregate_increment (bgp, &p, new, afi, safi);
+  
+  /* Register new BGP information. */
+  bgp_info_add (rn, new);
+  
+  /* route_node_get lock */
+  bgp_unlock_node (rn);
+  
+  /* Process change. */
+  bgp_process (bgp, rn, afi, safi);
+
+  /* Unintern original. */
+  aspath_unintern (&attr.aspath);
+  bgp_attr_extra_free (&attr);
+	  }
     }
 
   return CMD_SUCCESS;
@@ -4295,6 +4519,26 @@ DEFUN (bgp_network_mask,
 
   return bgp_static_set (vty, vty->index, prefix_str,
 			 AFI_IP, bgp_node_safi (vty), NULL, 0);
+}
+/**/
+DEFUN (bgp_flowspec_match,
+       bgp_flowspec_match_cmd,
+//	"match destination-address A.B.C.D/M action (rate|action|redirect|marking) STR FS_NAME",
+	   "flowspec send A.B.C.D/M FS_NAME",
+       "Specify a network to announce via BGP\n"
+       "send..."
+       "Match based on destination address\n"
+       "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n"
+//       "flowspec action\n"
+//       "traffic rate\n"
+//       "traffic action\n"
+//       "traffic redirect\n"
+//       "traffic marking\n"
+       "flowspec map name\n")
+{
+  //vty->node = BGP_FLOWSPEC_MATCH_NODE;
+  return bgp_flowspec_set (vty, vty->index, argv[0],
+             AFI_IP, bgp_node_safi (vty), NULL, 0, argv[1]);
 }
 
 DEFUN (bgp_network_mask_route_map,
@@ -15696,6 +15940,21 @@ bgp_route_init (void)
   /* Init BGP distance table. */
   bgp_distance_table = bgp_table_init (AFI_IP, SAFI_UNICAST);
 
+  /* BGP FS commands. */
+	install_element (BGP_FLOWSPEC_NODE, &bgp_network_cmd);
+	install_element (BGP_FLOWSPEC_NODE, &bgp_network_mask_cmd);
+	install_element (BGP_FLOWSPEC_NODE, &no_bgp_network_cmd);
+	install_element (BGP_FLOWSPEC_NODE, &no_bgp_network_mask_cmd);
+	install_element (BGP_FLOWSPECV6_NODE, &bgp_network_cmd);
+	install_element (BGP_FLOWSPECV6_NODE, &bgp_network_mask_cmd);
+	install_element (BGP_FLOWSPECV6_NODE, &no_bgp_network_cmd);
+	install_element (BGP_FLOWSPECV6_NODE, &no_bgp_network_mask_cmd);
+	install_element (BGP_FLOWSPEC_NODE, &bgp_flowspec_match_cmd);
+	/*
+	install_element (BGP_FLOWSPEC_NODE, &bgp_flowspec_match_protocol_cmd);
+	install_element (BGP_FLOWSPEC_NODE, &bgp_flowspec_match_cmd);
+	install_element (BGP_FLOWSPECV6_NODE, &bgp_flowspec_match_cmd);
+*/
   /* IPv4 BGP commands. */
   install_element (BGP_NODE, &bgp_network_cmd);
   install_element (BGP_NODE, &bgp_network_mask_cmd);

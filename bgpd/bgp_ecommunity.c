@@ -29,6 +29,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_ecommunity.h"
 #include "bgpd/bgp_aspath.h"
+#include "bgpd/bgp_flowspec.h"
 
 /* Hash of community attribute. */
 static struct hash *ecomhash;
@@ -289,7 +290,8 @@ enum ecommunity_token
 };
 
 /* Get next Extended Communities token from the string. */
-static const char *
+//static const char *
+const char *
 ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
 		     enum ecommunity_token *token)
 {
@@ -563,6 +565,49 @@ ecommunity_str2com (const char *str, int type, int keyword_included)
 	}
     }
   return ecom;
+}
+
+extern struct ecommunity *ecommunity_test (struct flowspec_index *, as_t);
+
+struct ecommunity *
+ecommunity_test (struct flowspec_index * index, as_t as)
+{
+  struct ecommunity *tmp = NULL;
+  return tmp;
+}
+
+extern struct ecommunity *ecommunity_flowspec (struct flowspec_index *, as_t);
+
+struct ecommunity *
+ecommunity_flowspec (struct flowspec_index * index, as_t as)
+{
+	struct ecommunity *ecom = NULL;
+	struct ecommunity_val eval;
+	int action_len;
+	u_int8_t action_str[1024];
+	int i,j;
+
+	ecom = ecommunity_new ();
+	action_len = encode_flowspec_set(index, action_str, as);
+
+	printf("action_str:");
+	for(j = 0; j < action_len; j++)
+		printf("%u",action_str[j]);
+	printf("\n");
+	printf("action_len = %d\n", action_len);
+	
+	for(i = 0; i < action_len; i++)
+	{
+		eval.val[i % 8] = action_str[i];
+		printf("val[%d]=%u ", i, eval.val[i % 8]);
+		if(i % 8 == 7)
+		{
+			printf("\n");
+			ecommunity_add_val (ecom, &eval);
+		}
+	}
+	printf("ecom->size=%d\n",ecom->size);
+  	return ecom;
 }
 
 /* Convert extended community attribute to string.  
